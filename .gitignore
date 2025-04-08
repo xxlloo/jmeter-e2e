@@ -1,0 +1,72 @@
+# Python bytecode files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# Distribution / packaging
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+dist/
+build/
+eggs/
+*.egg-info/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE or editor folders
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Pytest
+.cache/
+
+# mypy
+.mypy_cache/
+
+# VSCode settings
+.vscode/
+
+# Logs
+*.log
+
+# Local configuration files
+*.env
+*.env.*
+
+# SQLite databases
+*.sqlite3
+*.db
+
+# pyenv
+.python-version
+
+# Docker
+docker-compose.override.yml
+Dockerfile
+
+# Coverage reports
+.coverage
+.coverage.*
+nosetests.xml
+test_*.xml
+*.cover
+
+# PyCharm
+.idea/
+*.iml
+*.ipr
