@@ -1,9 +1,9 @@
+import jwt
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
-import jwt
 from starlette.responses import RedirectResponse
 
 from mock.db import Base, engine, SessionLocal
