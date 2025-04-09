@@ -1,7 +1,14 @@
 # 用户模型
 from datetime import datetime
+from typing import Optional, Any
 
 from pydantic import BaseModel
+
+
+class ResponseTemplate(BaseModel):
+    status: int
+    message: str
+    data: Optional[Any] = None
 
 
 class UserInDB(BaseModel):
@@ -17,7 +24,6 @@ class ProductInDB(BaseModel):
     name: str
     description: str
     price: float
-
 
 
 class CouponCreate(BaseModel):

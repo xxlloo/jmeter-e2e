@@ -1,18 +1,39 @@
+from typing import Any
+
 import jwt
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, JSONResponse
 
 from mock.db import Base, engine, SessionLocal
 from mock.dependencies import get_db
 from mock.models import Product, User, Cart, Order, Coupon
-from mock.schemas import UserCreate, UserInDB, CouponCreate
+from mock.schemas import UserCreate, UserInDB, CouponCreate, ResponseTemplate
+
+
+class CustomJSONResponse(JSONResponse):
+    def __init__(self, content: Any, status_code: int = 200, *args, **kwargs):
+        # 根据状态码确定响应的消息
+        message = "成功" if status_code == 200 else "失败"
+
+        # 创建响应模板
+        response_data = ResponseTemplate(
+            status=status_code,
+            message=message,
+            data=content
+        )
+
+        # 调用父类的构造函数，将响应数据转换为字典格式
+        super().__init__(content=response_data.dict(), status_code=status_code, *args, **kwargs)
+
 
 # FastAPI 应用初始化
-app = FastAPI()
+app = FastAPI(
+    debug=True
+)
 
 
 @app.on_event("startup")
@@ -63,7 +84,7 @@ async def root():
     return RedirectResponse(url="/docs")
 
 
-@app.post("/register", response_model=UserInDB)
+@app.post("/register", response_class=CustomJSONResponse)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.username == user.username).first()
     if db_user:
@@ -75,8 +96,10 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     return db_user
 
 
-@app.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+@app.post("/login", response_class=CustomJSONResponse)
+async def login(
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.username == form_data.username).first()
     if db_user is None or db_user.password != form_data.password:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -84,8 +107,9 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/token/refresh")
-async def refresh_token(token: str = Depends(oauth2_scheme)):
+@app.post("/token/refresh", response_class=CustomJSONResponse)
+async def refresh_token(
+        token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
@@ -99,13 +123,13 @@ async def refresh_token(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-@app.get("/home")
+@app.get("/home", response_class=CustomJSONResponse)
 async def home(db: Session = Depends(get_db)):
     products = db.query(Product).all()
     return {"products": products}
 
 
-@app.get("/product/{product_id}")
+@app.get("/product/{product_id}", response_class=CustomJSONResponse)
 async def get_product(product_id: int, db: Session = Depends(get_db)):
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
@@ -113,9 +137,10 @@ async def get_product(product_id: int, db: Session = Depends(get_db)):
     return {"product": product}
 
 
-@app.post("/cart/add")
-async def add_to_cart(product_id: int, quantity: int, db: Session = Depends(get_db),
-                      token: str = Depends(oauth2_scheme)):
+@app.post("/cart/add", response_class=CustomJSONResponse)
+async def add_to_cart(
+        product_id: int, quantity: int, db: Session = Depends(get_db),
+        token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
@@ -128,8 +153,10 @@ async def add_to_cart(product_id: int, quantity: int, db: Session = Depends(get_
     return {"msg": "Product added to cart"}
 
 
-@app.get("/cart")
-async def get_cart(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+@app.get("/cart", response_class=CustomJSONResponse)
+async def get_cart(
+        db: Session = Depends(get_db),
+        token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
@@ -140,8 +167,11 @@ async def get_cart(db: Session = Depends(get_db), token: str = Depends(oauth2_sc
     return {"cart": cart_items}
 
 
-@app.post("/order")
-async def create_order(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+@app.post("/order", response_class=CustomJSONResponse)
+async def create_order(
+        db: Session = Depends(get_db),
+        token: str = Depends(oauth2_scheme)
+):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
@@ -161,8 +191,11 @@ async def create_order(db: Session = Depends(get_db), token: str = Depends(oauth
     return {"msg": "Order created", "order_id": order.id}
 
 
-@app.get("/orders")
-async def get_orders(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+@app.get("/orders", response_class=CustomJSONResponse)
+async def get_orders(
+        db: Session = Depends(get_db),
+        token: str = Depends(oauth2_scheme)
+):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
@@ -173,7 +206,7 @@ async def get_orders(db: Session = Depends(get_db), token: str = Depends(oauth2_
     return {"orders": orders}
 
 
-@app.post("/pay/{order_id}")
+@app.post("/pay/{order_id}", response_class=CustomJSONResponse)
 async def pay(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme), amount: float = 0):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -194,7 +227,7 @@ async def pay(order_id: int, db: Session = Depends(get_db), token: str = Depends
     return {"msg": "Payment successful", "order_id": order.id}
 
 
-@app.delete("/cart/{cart_item_id}")
+@app.delete("/cart/{cart_item_id}", response_class=CustomJSONResponse)
 async def remove_from_cart(cart_item_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -211,7 +244,7 @@ async def remove_from_cart(cart_item_id: int, db: Session = Depends(get_db), tok
     return {"msg": "Product removed from cart"}
 
 
-@app.put("/cart/{cart_item_id}")
+@app.put("/cart/{cart_item_id}", response_class=CustomJSONResponse)
 async def update_cart_item(cart_item_id: int, quantity: int, db: Session = Depends(get_db),
                            token: str = Depends(oauth2_scheme)):
     try:
@@ -232,7 +265,7 @@ async def update_cart_item(cart_item_id: int, quantity: int, db: Session = Depen
     return {"msg": "Cart item updated"}
 
 
-@app.delete("/order/{order_id}")
+@app.delete("/order/{order_id}", response_class=CustomJSONResponse)
 async def cancel_order(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -249,7 +282,7 @@ async def cancel_order(order_id: int, db: Session = Depends(get_db), token: str 
     return {"msg": "Order cancelled"}
 
 
-@app.get("/user_dashboard")
+@app.get("/user_dashboard", response_class=CustomJSONResponse)
 async def user_dashboard(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -263,7 +296,7 @@ async def user_dashboard(db: Session = Depends(get_db), token: str = Depends(oau
     return {"cart_items": cart_items, "orders": orders}
 
 
-@app.get("/order/{order_id}/detail")
+@app.get("/order/{order_id}/detail", response_class=CustomJSONResponse)
 async def get_order_detail(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -283,7 +316,7 @@ async def get_order_detail(order_id: int, db: Session = Depends(get_db), token: 
             "status": order.status}
 
 
-@app.post("/admin/create_coupon")
+@app.post("/admin/create_coupon", response_class=CustomJSONResponse)
 async def create_coupon(coupon: CouponCreate, db: Session = Depends(get_db)):
     db_coupon = db.query(Coupon).filter(Coupon.code == coupon.code).first()
     if db_coupon:
@@ -300,14 +333,14 @@ async def create_coupon(coupon: CouponCreate, db: Session = Depends(get_db)):
     return {"msg": "Coupon created successfully", "coupon_id": db_coupon.id}
 
 
-@app.get("/coupons")
+@app.get("/coupons", response_class=CustomJSONResponse)
 async def get_valid_coupons(db: Session = Depends(get_db)):
     current_time = datetime.utcnow()
     valid_coupons = db.query(Coupon).filter(Coupon.active == True, Coupon.expiration_date > current_time).all()
     return {"coupons": valid_coupons}
 
 
-@app.post("/order/apply_coupon")
+@app.post("/order/apply_coupon", response_class=CustomJSONResponse)
 async def apply_coupon(order_id: int, coupon_code: str, db: Session = Depends(get_db),
                        token: str = Depends(oauth2_scheme)):
     try:
@@ -341,7 +374,7 @@ async def apply_coupon(order_id: int, coupon_code: str, db: Session = Depends(ge
     return {"msg": "Coupon applied", "new_total_price": order.total_price}
 
 
-@app.delete("/admin/delete_coupon/{coupon_id}")
+@app.delete("/admin/delete_coupon/{coupon_id}", response_class=CustomJSONResponse)
 async def delete_coupon(coupon_id: int, db: Session = Depends(get_db)):
     db_coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
     if not db_coupon:
@@ -352,7 +385,7 @@ async def delete_coupon(coupon_id: int, db: Session = Depends(get_db)):
     return {"msg": "Coupon deleted successfully"}
 
 
-@app.delete("/user/{user_id}")
+@app.delete("/user/{user_id}", response_class=CustomJSONResponse)
 async def delete_user(user_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
     try:
         # 解码 JWT token 来验证用户身份
