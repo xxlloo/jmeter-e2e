@@ -55,10 +55,6 @@ venv/
 # pyenv
 .python-version
 
-# Docker
-docker-compose.override.yml
-Dockerfile
-
 # Coverage reports
 .coverage
 .coverage.*
