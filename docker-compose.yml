@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  fastapi:
+    build: .
+    ports:
+      - "8000:8000"  # 将容器的 8000 端口映射到宿主机的 8000 端口
+    volumes:
+      - .:/app  # 将当前目录挂载到容器的 /app 目录（开发时非常有用）
+    environment:
+      - PYTHONUNBUFFERED=1  # 不缓冲日志，方便实时查看输出
+    restart: always  # 容器崩溃后自动重启

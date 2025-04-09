@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Column, String, Integer, Float
+from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean
 
 from mock.db import Base
 
@@ -37,3 +37,16 @@ class Order(Base):
     total_price = Column(Float)
     status = Column(String, default="pending")
     created_at = Column(String, default=datetime.now().isoformat())
+
+
+class Coupon(Base):
+    __tablename__ = 'coupons'
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, index=True)  # 优惠券代码
+    discount_amount = Column(Float)  # 优惠金额或折扣比例
+    expiration_date = Column(DateTime)  # 过期时间
+    active = Column(Boolean, default=True)  # 是否有效
+
+
+

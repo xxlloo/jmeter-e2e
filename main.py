@@ -8,8 +8,8 @@ from starlette.responses import RedirectResponse
 
 from mock.db import Base, engine, SessionLocal
 from mock.dependencies import get_db
-from mock.models import Product, User, Cart, Order
-from mock.schemas import UserCreate, UserInDB
+from mock.models import Product, User, Cart, Order, Coupon
+from mock.schemas import UserCreate, UserInDB, CouponCreate
 
 # FastAPI 应用初始化
 app = FastAPI()
@@ -174,7 +174,7 @@ async def get_orders(db: Session = Depends(get_db), token: str = Depends(oauth2_
 
 
 @app.post("/pay/{order_id}")
-async def pay(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+async def pay(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme), amount: float = 0):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
@@ -185,6 +185,192 @@ async def pay(order_id: int, db: Session = Depends(get_db), token: str = Depends
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    # 检查是否有优惠券折扣
+    if order.total_price < amount:
+        raise HTTPException(status_code=400, detail="Payment amount exceeds the total order price")
+
     order.status = "paid"
     db.commit()
     return {"msg": "Payment successful", "order_id": order.id}
+
+
+@app.delete("/cart/{cart_item_id}")
+async def remove_from_cart(cart_item_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    cart_item = db.query(Cart).filter(Cart.id == cart_item_id, Cart.user_id == user_id).first()
+    if not cart_item:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+
+    db.delete(cart_item)
+    db.commit()
+    return {"msg": "Product removed from cart"}
+
+
+@app.put("/cart/{cart_item_id}")
+async def update_cart_item(cart_item_id: int, quantity: int, db: Session = Depends(get_db),
+                           token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    cart_item = db.query(Cart).filter(Cart.id == cart_item_id, Cart.user_id == user_id).first()
+    if not cart_item:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
+
+    cart_item.quantity = quantity
+    db.commit()
+    return {"msg": "Cart item updated"}
+
+
+@app.delete("/order/{order_id}")
+async def cancel_order(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id, Order.status == "pending").first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found or cannot be cancelled")
+
+    db.delete(order)
+    db.commit()
+    return {"msg": "Order cancelled"}
+
+
+@app.get("/user_dashboard")
+async def user_dashboard(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    cart_items = db.query(Cart).filter(Cart.user_id == user_id).all()
+    orders = db.query(Order).filter(Order.user_id == user_id).all()
+
+    return {"cart_items": cart_items, "orders": orders}
+
+
+@app.get("/order/{order_id}/detail")
+async def get_order_detail(order_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    product = db.query(Product).filter(Product.id == order.product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    return {"order_id": order.id, "product": product, "quantity": order.quantity, "total_price": order.total_price,
+            "status": order.status}
+
+
+@app.post("/admin/create_coupon")
+async def create_coupon(coupon: CouponCreate, db: Session = Depends(get_db)):
+    db_coupon = db.query(Coupon).filter(Coupon.code == coupon.code).first()
+    if db_coupon:
+        raise HTTPException(status_code=400, detail="Coupon code already exists")
+
+    db_coupon = Coupon(
+        code=coupon.code,
+        discount_amount=coupon.discount_amount,
+        expiration_date=coupon.expiration_date
+    )
+    db.add(db_coupon)
+    db.commit()
+    db.refresh(db_coupon)
+    return {"msg": "Coupon created successfully", "coupon_id": db_coupon.id}
+
+
+@app.get("/coupons")
+async def get_valid_coupons(db: Session = Depends(get_db)):
+    current_time = datetime.utcnow()
+    valid_coupons = db.query(Coupon).filter(Coupon.active == True, Coupon.expiration_date > current_time).all()
+    return {"coupons": valid_coupons}
+
+
+@app.post("/order/apply_coupon")
+async def apply_coupon(order_id: int, coupon_code: str, db: Session = Depends(get_db),
+                       token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # 查找订单
+    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # 查找优惠券
+    coupon = db.query(Coupon).filter(Coupon.code == coupon_code).first()
+    if not coupon:
+        raise HTTPException(status_code=400, detail="Invalid coupon code")
+
+    # 检查优惠券是否过期
+    if coupon.expiration_date < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Coupon has expired")
+
+    # 更新订单总价
+    discount = coupon.discount_amount
+    if order.total_price < discount:
+        discount = order.total_price  # 最大只能抵扣订单的总额
+
+    order.total_price -= discount
+    db.commit()
+
+    return {"msg": "Coupon applied", "new_total_price": order.total_price}
+
+
+@app.delete("/admin/delete_coupon/{coupon_id}")
+async def delete_coupon(coupon_id: int, db: Session = Depends(get_db)):
+    db_coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+    if not db_coupon:
+        raise HTTPException(status_code=404, detail="Coupon not found")
+
+    db.delete(db_coupon)
+    db.commit()
+    return {"msg": "Coupon deleted successfully"}
+
+
+@app.delete("/user/{user_id}")
+async def delete_user(user_id: int, db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    try:
+        # 解码 JWT token 来验证用户身份
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        current_user_id = db.query(User).filter(User.username == payload.get("sub")).first().id
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # 检查用户是否存在
+    db_user = db.query(User).filter(User.id == user_id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 防止删除自己
+    if user_id == current_user_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+
+    # 删除用户
+    db.delete(db_user)
+    db.commit()
+    return {"msg": "User deleted successfully"}
